@@ -29,10 +29,10 @@ When you download Snapchat memories, the files are named with the correct date (
 ## 📥 Download
 
 ### Windows
-Download: [`Snapchat_Metadata_Fixer.pyw`](https://github.com/ethanshoforost/snapchat-metadata-fixer/releases/latest)
+Download: [`Snapchat_Metadata_Fixer.pyw`](https://github.com/EthanShoforost/Snapchat-Memory-Metadata-Fixer/releases/latest)
 
 ### macOS
-Download: [`Snapchat_Metadata_Fixer.py`](https://github.com/ethanshoforost/snapchat-metadata-fixer/releases/latest)
+Download: [`Snapchat_Metadata_Fixer.py`](https://github.com/EthanShoforost/Snapchat-Memory-Metadata-Fixer/releases/latest)
 
 ---
 
