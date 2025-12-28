@@ -2,8 +2,8 @@
 """
 Snapchat Metadata Fixer
 Created by: Ethan Shoforost
-Version: 1.0.0
-GitHub: https://github.com/ethanshoforost/snapchat-metadata-fixer
+Version: 1.0.1
+GitHub: https://github.com/EthanShoforost/Snapchat-Memory-Metadata-Fixer
 Support: https://buymeacoffee.com/ethanshoforost
 
 Fixes metadata for Snapchat memories by reading the date from the filename
@@ -85,6 +85,8 @@ class MetadataFixer:
         
         self.folder_path = None
         self.files_to_fix = []
+        self.failed_files = []
+        self.failed_details = []  # Store (file_path, error_message)
         self.fixed_count = 0
         self.failed_count = 0
         
@@ -274,24 +276,41 @@ class MetadataFixer:
             self.root.update()
             
             # Fix the file
-            if self.fix_file_metadata(file_path):
+            result = self.fix_file_metadata(file_path)
+            if result is True:
                 self.fixed_count += 1
             else:
                 self.failed_count += 1
+                self.failed_files.append(file_path)
+                # Store the error message
+                error_msg = result if isinstance(result, str) else "Unknown error"
+                self.failed_details.append((file_path, error_msg))
         
         self.show_complete_screen()
     
     def fix_file_metadata(self, file_path):
-        """Fix metadata for a single file"""
+        """Fix metadata for a single file - returns True on success, error string on failure"""
         try:
             # Parse date from filename
             name = file_path.stem
+            
+            # Check filename length
+            if len(name) < 19:
+                return f"Filename too short: {name}"
+            
             date_str = name[:19]  # YYYY-MM-DD_HH-MM-SS
             
-            # Convert to datetime
-            dt = datetime.strptime(date_str, '%Y-%m-%d_%H-%M-%S')
+            # Validate date format
+            try:
+                dt = datetime.strptime(date_str, '%Y-%m-%d_%H-%M-%S')
+            except ValueError as e:
+                return f"Invalid date format: {date_str} ({str(e)})"
             
             ext = file_path.suffix.lower()
+            
+            # Check file type
+            if ext not in ['.jpg', '.jpeg', '.png', '.mp4', '.mov']:
+                return f"Unsupported file type: {ext}"
             
             if ext in ['.jpg', '.jpeg']:
                 return self.fix_jpeg_metadata(file_path, dt)
@@ -300,14 +319,13 @@ class MetadataFixer:
             elif ext in ['.mp4', '.mov']:
                 return self.fix_video_metadata(file_path, dt)
             
-            return False
+            return "Unknown error"
             
         except Exception as e:
-            print(f"Error fixing {file_path.name}: {e}")
-            return False
+            return f"Exception: {str(e)}"
     
     def fix_jpeg_metadata(self, file_path, dt):
-        """Fix EXIF metadata for JPEG files"""
+        """Fix EXIF metadata for JPEG files - returns True or error string"""
         try:
             # Format datetime for EXIF (YYYY:MM:DD HH:MM:SS)
             exif_dt = dt.strftime('%Y:%m:%d %H:%M:%S')
@@ -315,7 +333,7 @@ class MetadataFixer:
             # Try to load existing EXIF
             try:
                 exif_dict = piexif.load(str(file_path))
-            except:
+            except Exception as e:
                 exif_dict = {"0th": {}, "Exif": {}, "GPS": {}, "1st": {}}
             
             # Set date/time fields
@@ -337,21 +355,20 @@ class MetadataFixer:
             return True
             
         except Exception as e:
-            print(f"JPEG error: {e}")
-            return False
+            return f"JPEG error: {str(e)}"
     
     def fix_png_metadata(self, file_path, dt):
-        """Fix metadata for PNG files (no EXIF, just file times)"""
+        """Fix metadata for PNG files (no EXIF, just file times) - returns True or error string"""
         try:
             # PNG doesn't have EXIF, just update file modification time
             timestamp = dt.timestamp()
             os.utime(file_path, (timestamp, timestamp))
             return True
-        except:
-            return False
+        except Exception as e:
+            return f"PNG error: {str(e)}"
     
     def fix_video_metadata(self, file_path, dt):
-        """Fix metadata for video files using ffmpeg"""
+        """Fix metadata for video files using ffmpeg - returns True or error string"""
         try:
             # Format for ffmpeg metadata
             creation_time = dt.strftime('%Y-%m-%dT%H:%M:%S')
@@ -390,14 +407,13 @@ class MetadataFixer:
                 return True
                 
         except Exception as e:
-            print(f"Video error: {e}")
             # Fallback: just update file times
             try:
                 timestamp = dt.timestamp()
                 os.utime(file_path, (timestamp, timestamp))
                 return True
-            except:
-                return False
+            except Exception as e2:
+                return f"Video error: {str(e2)}"
     
     def show_complete_screen(self):
         self.clear_screen()
@@ -406,24 +422,110 @@ class MetadataFixer:
         frame.pack(expand=True)
         
         # Title
-        title = tk.Label(frame, text="✅ Complete!", 
-                        font=("Arial", 28, "bold"), fg=self.green, bg=self.bg)
+        if self.failed_count == 0:
+            title = tk.Label(frame, text="✅ Complete!", 
+                            font=("Arial", 28, "bold"), fg=self.green, bg=self.bg)
+        else:
+            title = tk.Label(frame, text="⚠️ Complete with Errors", 
+                            font=("Arial", 28, "bold"), fg=self.orange, bg=self.bg)
         title.pack(pady=30)
         
         # Results
         results_text = f"Successfully fixed: {self.fixed_count} files\n"
         if self.failed_count > 0:
             results_text += f"Failed: {self.failed_count} files\n\n"
-        results_text += "\nYour photos and videos now have the correct dates!"
+            results_text += "You can retry the failed files below."
+        else:
+            results_text += "\nYour photos and videos now have the correct dates!"
         
         results = tk.Label(frame, text=results_text,
                           font=("Arial", 14), fg=self.white, bg=self.bg, justify="center")
         results.pack(pady=20)
         
+        # Buttons
+        btn_frame = tk.Frame(frame, bg=self.bg)
+        btn_frame.pack(pady=30)
+        
+        # View Errors button (only if there are failures)
+        if self.failed_count > 0:
+            view_errors_btn = self.create_canvas_button(btn_frame, "📋  View Errors", 
+                                                       self.show_error_details, "#666666", 180, 50)
+            view_errors_btn.pack(side=tk.LEFT, padx=10)
+        
+        # Retry button (only if there are failures)
+        if self.failed_count > 0:
+            retry_btn = self.create_canvas_button(btn_frame, f"🔄  Retry Failed ({self.failed_count})", 
+                                                  self.retry_failed, self.orange, 200, 50)
+            retry_btn.pack(side=tk.LEFT, padx=10)
+        
         # Done button
-        done_btn = self.create_canvas_button(frame, "✨  Done", 
-                                            self.root.quit, self.orange, 200, 50)
-        done_btn.pack(pady=30)
+        done_btn = self.create_canvas_button(btn_frame, "✨  Done", 
+                                            self.root.quit, self.green, 200, 50)
+        done_btn.pack(side=tk.LEFT, padx=10)
+    
+    def show_error_details(self):
+        """Show detailed error information in a new window"""
+        error_window = tk.Toplevel(self.root)
+        error_window.title("Error Details")
+        error_window.geometry("800x500")
+        error_window.configure(bg=self.bg)
+        
+        # Title
+        title = tk.Label(error_window, text="Failed Files - Error Details",
+                        font=("Arial", 16, "bold"), fg=self.white, bg=self.bg)
+        title.pack(pady=20)
+        
+        # Scrollable frame
+        frame = tk.Frame(error_window, bg=self.bg)
+        frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
+        
+        # Add scrollbar
+        scrollbar = tk.Scrollbar(frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Text widget for errors
+        text = tk.Text(frame, bg=self.gray, fg=self.white, 
+                      font=("Courier", 10), yscrollcommand=scrollbar.set,
+                      wrap=tk.WORD, padx=10, pady=10)
+        text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.config(command=text.yview)
+        
+        # Add error details
+        for i, (file_path, error) in enumerate(self.failed_details, 1):
+            text.insert(tk.END, f"{i}. ", "number")
+            text.insert(tk.END, f"{file_path.name}\n", "filename")
+            text.insert(tk.END, f"   Error: {error}\n\n", "error")
+        
+        # Configure tags for colors
+        text.tag_config("number", foreground="#FFD700")
+        text.tag_config("filename", foreground="#FF6B35", font=("Courier", 10, "bold"))
+        text.tag_config("error", foreground="#cccccc")
+        
+        text.config(state=tk.DISABLED)  # Make read-only
+        
+        # Close button
+        close_btn = self.create_canvas_button(error_window, "Close", 
+                                             error_window.destroy, self.orange, 150, 40)
+        close_btn.pack(pady=20)
+    
+    def retry_failed(self):
+        """Retry fixing failed files"""
+        if not self.failed_files:
+            return
+        
+        # Reset counters for retry
+        self.files_to_fix = self.failed_files.copy()
+        self.failed_files = []
+        self.failed_details = []  # Clear old error details
+        retry_fixed = self.fixed_count
+        retry_failed = self.failed_count
+        self.fixed_count = 0
+        self.failed_count = 0
+        
+        # Show progress screen and process
+        self.show_progress_screen()
+        self.root.update()
+        self.process_files()
 
 if __name__ == "__main__":
     root = tk.Tk()
